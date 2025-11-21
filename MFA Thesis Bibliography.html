@@ -1,0 +1,2458 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>JabRef references</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<script type="text/javascript">
+<!--
+// QuickSearch script for JabRef HTML export 
+// Version: 3.0
+//
+// Copyright (c) 2006-2011, Mark Schenk
+//
+// This software is distributed under a Creative Commons Attribution 3.0 License
+// http://creativecommons.org/licenses/by/3.0/
+//
+// Features:
+// - intuitive find-as-you-type searching
+//    ~ case insensitive
+//    ~ ignore diacritics (optional)
+//
+// - search with/without Regular Expressions
+// - match BibTeX key
+//
+
+// Search settings
+var searchAbstract = true;	// search in abstract
+var searchComment = true;	// search in comment
+
+var noSquiggles = true; 	// ignore diacritics when searching
+var searchRegExp = false; 	// enable RegExp searches
+
+
+if (window.addEventListener) {
+	window.addEventListener("load",initSearch,false); }
+else if (window.attachEvent) {
+	window.attachEvent("onload", initSearch); }
+
+function initSearch() {
+	// check for quick search table and searchfield
+	if (!document.getElementById('qs_table')||!document.getElementById('quicksearch')) { return; }
+
+	// load all the rows and sort into arrays
+	loadTableData();
+	
+	//find the query field
+	qsfield = document.getElementById('qs_field');
+
+	// previous search term; used for speed optimisation
+	prevSearch = '';
+
+	//find statistics location
+	stats = document.getElementById('stat');
+	setStatistics(-1);
+	
+	// set up preferences
+	initPreferences();
+
+	// shows the searchfield
+	document.getElementById('quicksearch').style.display = 'block';
+	document.getElementById('qs_field').onkeyup = quickSearch;
+}
+
+function loadTableData() {
+	// find table and appropriate rows
+	searchTable = document.getElementById('qs_table');
+	var allRows = searchTable.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+	// split all rows into entryRows and infoRows (e.g. abstract, comment, bibtex)
+	entryRows = new Array(); infoRows = new Array(); absRows = new Array(); revRows = new Array();
+
+	// get data from each row
+	entryRowsData = new Array(); absRowsData = new Array(); revRowsData = new Array(); 
+	
+	BibTeXKeys = new Array();
+	
+	for (var i=0, k=0, j=0; i<allRows.length;i++) {
+		if (allRows[i].className.match(/entry/)) {
+			entryRows[j] = allRows[i];
+			entryRowsData[j] = stripDiacritics(getTextContent(allRows[i]));
+			allRows[i].id ? BibTeXKeys[j] = allRows[i].id : allRows[i].id = 'autokey_'+j;
+			j ++;
+		} else {
+			infoRows[k++] = allRows[i];
+			// check for abstract/comment
+			if (allRows[i].className.match(/abstract/)) {
+				absRows.push(allRows[i]);
+				absRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			} else if (allRows[i].className.match(/comment/)) {
+				revRows.push(allRows[i]);
+				revRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			}
+		}
+	}
+	//number of entries and rows
+	numEntries = entryRows.length;
+	numInfo = infoRows.length;
+	numAbs = absRows.length;
+	numRev = revRows.length;
+}
+
+function quickSearch(){
+	
+	tInput = qsfield;
+
+	if (tInput.value.length == 0) {
+		showAll();
+		setStatistics(-1);
+		qsfield.className = '';
+		return;
+	} else {
+		t = stripDiacritics(tInput.value);
+
+		if(!searchRegExp) { t = escapeRegExp(t); }
+			
+		// only search for valid RegExp
+		try {
+			textRegExp = new RegExp(t,"i");
+			closeAllInfo();
+			qsfield.className = '';
+		}
+			catch(err) {
+			prevSearch = tInput.value;
+			qsfield.className = 'invalidsearch';
+			return;
+		}
+	}
+	
+	// count number of hits
+	var hits = 0;
+
+	// start looping through all entry rows
+	for (var i = 0; cRow = entryRows[i]; i++){
+
+		// only show search the cells if it isn't already hidden OR if the search term is getting shorter, then search all
+		if(cRow.className.indexOf('noshow')==-1 || tInput.value.length <= prevSearch.length){
+			var found = false; 
+
+			if (entryRowsData[i].search(textRegExp) != -1 || BibTeXKeys[i].search(textRegExp) != -1){ 
+				found = true;
+			} else {
+				if(searchAbstract && absRowsData[i]!=undefined) {
+					if (absRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+				if(searchComment && revRowsData[i]!=undefined) {
+					if (revRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+			}
+			
+			if (found){
+				cRow.className = 'entry show';
+				hits++;
+			} else {
+				cRow.className = 'entry noshow';
+			}
+		}
+	}
+
+	// update statistics
+	setStatistics(hits)
+	
+	// set previous search value
+	prevSearch = tInput.value;
+}
+
+
+// Strip Diacritics from text
+// http://stackoverflow.com/questions/990904/javascript-remove-accents-in-strings
+
+// String containing replacement characters for stripping accents 
+var stripstring = 
+    'AAAAAAACEEEEIIII'+
+    'DNOOOOO.OUUUUY..'+
+    'aaaaaaaceeeeiiii'+
+    'dnooooo.ouuuuy.y'+
+    'AaAaAaCcCcCcCcDd'+
+    'DdEeEeEeEeEeGgGg'+
+    'GgGgHhHhIiIiIiIi'+
+    'IiIiJjKkkLlLlLlL'+
+    'lJlNnNnNnnNnOoOo'+
+    'OoOoRrRrRrSsSsSs'+
+    'SsTtTtTtUuUuUuUu'+
+    'UuUuWwYyYZzZzZz.';
+
+function stripDiacritics(str){
+
+    if(noSquiggles==false){
+        return str;
+    }
+
+    var answer='';
+    for(var i=0;i<str.length;i++){
+        var ch=str[i];
+        var chindex=ch.charCodeAt(0)-192;   // Index of character code in the strip string
+        if(chindex>=0 && chindex<stripstring.length){
+            // Character is within our table, so we can strip the accent...
+            var outch=stripstring.charAt(chindex);
+            // ...unless it was shown as a '.'
+            if(outch!='.')ch=outch;
+        }
+        answer+=ch;
+    }
+    return answer;
+}
+
+// http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+// NOTE: must escape every \ in the export code because of the JabRef Export...
+function escapeRegExp(str) {
+  return str.replace(/[-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+}
+
+function toggleInfo(articleid,info) {
+
+	var entry = document.getElementById(articleid);
+	var abs = document.getElementById('abs_'+articleid);
+	var rev = document.getElementById('rev_'+articleid);
+	var bib = document.getElementById('bib_'+articleid);
+	
+	if (abs && info == 'abstract') {
+		abs.className.indexOf('noshow') == -1?abs.className = 'abstract noshow':abs.className = 'abstract show';
+	} else if (rev && info == 'comment') {
+		rev.className.indexOf('noshow') == -1?rev.className = 'comment noshow':rev.className = 'comment show';
+	} else if (bib && info == 'bibtex') {
+		bib.className.indexOf('noshow') == -1?bib.className = 'bibtex noshow':bib.className = 'bibtex show';
+	} else { 
+		return;
+	}
+
+	// check if one or the other is available
+	var revshow; var absshow; var bibshow;
+	(abs && abs.className.indexOf('noshow') == -1)? absshow = true: absshow = false;
+	(rev && rev.className.indexOf('noshow') == -1)? revshow = true: revshow = false;	
+	(bib && bib.className.indexOf('noshow') == -1)? bibshow = true: bibshow = false;
+	
+	// highlight original entry
+	if(entry) {
+		if (revshow || absshow || bibshow) {
+		entry.className = 'entry highlight show';
+		} else {
+		entry.className = 'entry show';
+		}
+	}
+	
+	// When there's a combination of abstract/comment/bibtex showing, need to add class for correct styling
+	if(absshow) {
+		(revshow||bibshow)?abs.className = 'abstract nextshow':abs.className = 'abstract';
+	} 
+	if (revshow) {
+		bibshow?rev.className = 'comment nextshow': rev.className = 'comment';
+	}	
+	
+}
+
+function setStatistics (hits) {
+	if(hits < 0) { hits=numEntries; }
+	if(stats) { stats.firstChild.data = hits + '/' + numEntries}
+}
+
+function getTextContent(node) {
+	// Function written by Arve Bersvendsen
+	// http://www.virtuelvis.com
+	
+	if (node.nodeType == 3) {
+	return node.nodeValue;
+	} // text node
+	if (node.nodeType == 1 && node.className != "infolinks") { // element node
+	var text = [];
+	for (var chld = node.firstChild;chld;chld=chld.nextSibling) {
+		text.push(getTextContent(chld));
+	}
+	return text.join("");
+	} return ""; // some other node, won't contain text nodes.
+}
+
+function showAll(){
+	closeAllInfo();
+	for (var i = 0; i < numEntries; i++){ entryRows[i].className = 'entry show'; }
+}
+
+function closeAllInfo(){
+	for (var i=0; i < numInfo; i++){
+		if (infoRows[i].className.indexOf('noshow') ==-1) {
+			infoRows[i].className = infoRows[i].className + ' noshow';
+		}
+	}
+}
+
+function clearQS() {
+	qsfield.value = '';
+	showAll();
+}
+
+function redoQS(){
+	showAll();
+	quickSearch(qsfield);
+}
+
+function updateSetting(obj){
+	var option = obj.id;
+	var checked = obj.value;
+
+	switch(option)
+	 {
+	 case "opt_searchAbs":
+	   searchAbstract=!searchAbstract;
+	   redoQS();
+	   break;
+	 case "opt_searchRev":
+	   searchComment=!searchComment;
+	   redoQS();
+	   break;
+	 case "opt_useRegExp":
+	   searchRegExp=!searchRegExp;
+	   redoQS();
+	   break;
+	 case "opt_noAccents":
+	   noSquiggles=!noSquiggles;
+	   loadTableData();
+	   redoQS();
+	   break;
+	 }
+}
+
+function initPreferences(){
+	if(searchAbstract){document.getElementById("opt_searchAbs").checked = true;}
+	if(searchComment){document.getElementById("opt_searchRev").checked = true;}
+	if(noSquiggles){document.getElementById("opt_noAccents").checked = true;}
+	if(searchRegExp){document.getElementById("opt_useRegExp").checked = true;}
+	
+	if(numAbs==0) {document.getElementById("opt_searchAbs").parentNode.style.display = 'none';}
+	if(numRev==0) {document.getElementById("opt_searchRev").parentNode.style.display = 'none';}
+}
+
+function toggleSettings(){
+	var togglebutton = document.getElementById('showsettings');
+	var settings = document.getElementById('settings');
+	
+	if(settings.className == "hidden"){
+		settings.className = "show";
+		togglebutton.innerText = "close settings";
+		togglebutton.textContent = "close settings";
+	}else{
+		settings.className = "hidden";
+		togglebutton.innerText = "settings...";		
+		togglebutton.textContent = "settings...";
+	}
+}
+
+-->
+</script>
+<style type="text/css">
+body { background-color: white; font-family: Arial, sans-serif; font-size: 13px; line-height: 1.2; padding: 1em; color: #2E2E2E; margin: auto 2em; }
+
+form#quicksearch { width: auto; border-style: solid; border-color: gray; border-width: 1px 0px; padding: 0.7em 0.5em; display:none; position:relative; }
+span#searchstat {padding-left: 1em;}
+
+div#settings { margin-top:0.7em; /* border-bottom: 1px transparent solid; background-color: #efefef; border: 1px grey solid; */ }
+div#settings ul {margin: 0; padding: 0; }
+div#settings li {margin: 0; padding: 0 1em 0 0; display: inline; list-style: none; }
+div#settings li + li { border-left: 2px #efefef solid; padding-left: 0.5em;}
+div#settings input { margin-bottom: 0px;}
+
+div#settings.hidden {display:none;}
+
+#showsettings { border: 1px grey solid; padding: 0 0.5em; float:right; line-height: 1.6em; text-align: right; }
+#showsettings:hover { cursor: pointer; }
+
+.invalidsearch { background-color: red; }
+input[type="button"] { background-color: #efefef; border: 1px #2E2E2E solid;}
+
+table { width: 100%; empty-cells: show; border-spacing: 0em 0.2em; margin: 1em 0em; border-style: none; }
+th, td { border: 1px gray solid; border-width: 1px 1px; padding: 0.5em; vertical-align: top; text-align: left; }
+th { background-color: #efefef; }
+td + td, th + th { border-left: none; }
+
+td a { color: navy; text-decoration: none; }
+td a:hover  { text-decoration: underline; }
+
+tr.noshow { display: none;}
+tr.highlight td { background-color: #EFEFEF; border-top: 2px #2E2E2E solid; font-weight: bold; }
+tr.abstract td, tr.comment td, tr.bibtex td { background-color: #EFEFEF; text-align: justify; border-bottom: 2px #2E2E2E solid; }
+tr.nextshow td { border-bottom: 1px gray solid; }
+
+tr.bibtex pre { width: 100%; overflow: auto; white-space: pre-wrap;}
+p.infolinks { margin: 0.3em 0em 0em 0em; padding: 0px; }
+
+@media print {
+	p.infolinks, #qs_settings, #quicksearch, t.bibtex { display: none !important; }
+	tr { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<form action="" id="quicksearch">
+<input type="text" id="qs_field" autocomplete="off" placeholder="Type to search..." /> <input type="button" onclick="clearQS()" value="clear" />
+<span id="searchstat">Matching entries: <span id="stat">0</span></span>
+<div id="showsettings" onclick="toggleSettings()">settings...</div>
+<div id="settings" class="hidden">
+<ul>
+<li><input type="checkbox" class="search_setting" id="opt_searchAbs" onchange="updateSetting(this)"><label for="opt_searchAbs"> include abstract</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_searchRev" onchange="updateSetting(this)"><label for="opt_searchRev"> include comment</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_useRegExp" onchange="updateSetting(this)"><label for="opt_useRegExp"> use RegExp</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_noAccents" onchange="updateSetting(this)"><label for="opt_noAccents"> ignore accents</label></li>
+</ul>
+</div>
+</form>
+<table id="qs_table" border="1">
+<thead><tr><th width="20%">Author</th><th width="30%">Title</th><th width="5%">Year</th><th width="30%">Journal/Proceedings</th><th width="10%">Reftype</th><th width="5%">DOI/URL</th></tr></thead>
+<tbody><tr id="hofmann_2012" class="entry">
+	<td>Hofmann, W., Baumeister, R.F., Förster, G. and Vohs, K.D.</td>
+	<td>Everyday temptations: an experience sampling study of desire, conflict, and self-control. <p class="infolinks">[<a href="javascript:toggleInfo('hofmann_2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('hofmann_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>Journal of Personality and Social Psychology<br/>Vol. 102(6), pp. 1318-1335&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1037/a0026545">DOI</a> <a href="http://dx.doi.org/10.1037/a0026545">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_hofmann_2012" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: How often and how strongly do people experience desires, to what extent do their desires conflict with other goals, and how often and successfully do people exercise self-control to resist their desires? To investigate desire and attempts to control desire in everyday life, we conducted a large-scale experience sampling study based on a conceptual framework integrating desire strength, conflict, resistance (use of self-control), and behavior enactment. A sample of 205 adults wore beepers for a week. They furnished 7,827 reports of desire episodes and completed personality measures of behavioral inhibition system/behavior activation system (BIS/BAS) sensitivity, trait self-control, perfectionism, and narcissistic entitlement. Results suggest that desires are frequent, variable in intensity, and largely unproblematic. Those urges that do conflict with other goals tend to elicit resistance, with uneven success. Desire strength, conflict, resistance, and self-regulatory success were moderated in multiple ways by personality variables as well as by situational and interpersonal factors such as alcohol consumption, the mere presence of others, and the presence of others who already had enacted the desire in question. Whereas personality generally had a stronger impact on the dimensions of desire that emerged early in its course (desire strength and conflict), situational factors showed relatively more influence on components later in the process (resistance and behavior enactment). In total, these findings offer a novel and detailed perspective on the nature of everyday desires and associated self-regulatory successes and failures. 2012 APA, all rights reserved</td>
+</tr>
+<tr id="bib_hofmann_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{hofmann_2012,
+  author = {Hofmann, Wilhelm and Baumeister, Roy F and Förster, Georg and Vohs, Kathleen D},
+  title = {Everyday temptations: an experience sampling study of desire, conflict, and self-control.},
+  journal = {Journal of Personality and Social Psychology},
+  year = {2012},
+  volume = {102},
+  number = {6},
+  pages = {1318-1335},
+  url = {http://dx.doi.org/10.1037/a0026545},
+  doi = {https://doi.org/10.1037/a0026545}
+}
+</pre></td>
+</tr>
+<tr id="deleuze_1983" class="entry">
+	<td>Deleuze, G. and Krauss, R.</td>
+	<td>Plato and the simulacrum <p class="infolinks">[<a href="javascript:toggleInfo('deleuze_1983','bibtex')">BibTeX</a>]</p></td>
+	<td>1983</td>
+	<td>October<br/>Vol. 27, pp. 45&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.2307/778495">DOI</a> <a href="https://www.jstor.org/stable/778495?origin=crossref">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_deleuze_1983" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{deleuze_1983,
+  author = {Deleuze, Gilles and Krauss, Rosalind},
+  title = {Plato and the simulacrum},
+  journal = {October},
+  year = {1983},
+  volume = {27},
+  pages = {45},
+  url = {https://www.jstor.org/stable/778495?origin=crossref},
+  doi = {https://doi.org/10.2307/778495}
+}
+</pre></td>
+</tr>
+<tr id="deleuze_2017" class="entry">
+	<td>Deleuze, G.</td>
+	<td>Postscript on the societies of control* <p class="infolinks">[<a href="javascript:toggleInfo('deleuze_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>Surveillance, crime and social control, pp. 35-39&nbsp;</td>
+	<td>incollection</td>
+	<td><a href="https://doi.org/10.4324/9781315242002-3">DOI</a> <a href="https://www.taylorfrancis.com/books/9781351896757/chapters/10.4324/9781315242002-3">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_deleuze_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@incollection{deleuze_2017,
+  author = {Deleuze, Gilles},
+  title = {Postscript on the societies of control*},
+  booktitle = {Surveillance, crime and social control},
+  publisher = {Routledge},
+  year = {2017},
+  pages = {35-39},
+  url = {https://www.taylorfrancis.com/books/9781351896757/chapters/10.4324/9781315242002-3},
+  doi = {https://doi.org/10.4324/9781315242002-3}
+}
+</pre></td>
+</tr>
+<tr id="han_2017" class="entry">
+	<td>Han, B.C.</td>
+	<td>Psychopolitics: neoliberalism and new technologies of power <p class="infolinks">[<a href="javascript:toggleInfo('han_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>, pp. 96&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_han_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{han_2017,
+  author = {Han, Byung Chul},
+  title = {Psychopolitics: neoliberalism and new technologies of power},
+  publisher = {Verso,},
+  year = {2017},
+  pages = {96}
+}
+</pre></td>
+</tr>
+<tr id="chapman_2012" class="entry">
+	<td>Chapman, O.B. and Sawchuk, K.</td>
+	<td>Research-Creation: Intervention, Analysis and "Family Resemblances" <p class="infolinks">[<a href="javascript:toggleInfo('chapman_2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('chapman_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>Canadian Journal of Communication<br/>Vol. 37(1)&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.22230/cjc.2012v37n1a2489">DOI</a> <a href="http://www.cjc-online.ca/index.php/journal/article/view/2489">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_chapman_2012" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: ABSTRACT textquotedblleftResearch-creation&rdquo; is an emergent category within the social sciences and humanities that speaks to contemporary media experiences and modes of knowing. Research-creation projects typically integrate a creative process, experimental aesthetic component, or an artistic work as an integral part of a study. The focus of this article is how this practice contributes to the research agenda of the digital humanities and social sciences. We discuss how the term has been articulated in academic policy discourses and examine some prominent academic analyses that describe the practice of research-creation. We then unravel, enumerate, and expand upon the concept of research-creation from the purview of Ludwig Wittgensteintextquoterights notion of textquotedblleftfamily resemblances&rdquo; before moving to a discussion of four modes of research-creation: -for-creation,&rdquo; -from-creation,&rdquo; textquotedblleftcreative presentations of research,&rdquo; and finally -as-research.textquotedblrightRÉSUMÉ La « recherche-création » est un domaine naissant en sciences humaines où ltextquoterighton stextquoterightintéresse aux expériences médiatiques et aux manières de savoir contemporaines. Les projets de recherche-création comportent typiquement un processus créatif, une composante esthétique expérimentale ou une oeuvre artistique. Notre article porte sur la manière dont cette pratique contribue à ltextquoterightagenda de recherche en digital humanities (« humanités numériques ») et en sciences humaines. Nous relevons comment les discours académiques sur les politiques ont traité de la recherche-création et examinons des analyses académiques importantes qui dressent le portrait de celle-ci. Ensuite, nous évaluons et élargissons ce concept en ayant recours à ltextquoterightidée des « ressemblances de famille » telle que développée par Ludwig Wittgenstein, puis pour terminer nous commentons quatre modes de recherche-création : « la recherche pour la création », « la recherche à partir de la création », « les présentations de recherche créatives » et « la création sous forme de recherche ».</td>
+</tr>
+<tr id="bib_chapman_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{chapman_2012,
+  author = {Chapman, Owen B. and Sawchuk, Kim},
+  title = {Research-Creation: Intervention, Analysis and "Family Resemblances"},
+  journal = {Canadian Journal of Communication},
+  year = {2012},
+  volume = {37},
+  number = {1},
+  url = {http://www.cjc-online.ca/index.php/journal/article/view/2489},
+  doi = {https://doi.org/10.22230/cjc.2012v37n1a2489}
+}
+</pre></td>
+</tr>
+<tr id="bennett_2010" class="entry">
+	<td>Bennett, J.</td>
+	<td>The Agency of Assemblages in Vibrant matter: A political ecology of things <p class="infolinks">[<a href="javascript:toggleInfo('bennett_2010','bibtex')">BibTeX</a>]</p></td>
+	<td>2010</td>
+	<td>, pp. 20-38&nbsp;</td>
+	<td>book</td>
+	<td><a href="https://doi.org/10.1215/9780822391623">DOI</a> <a href="https://read.dukeupress.edu/books/book/1346/vibrant-mattera-political-ecology-of-things">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_bennett_2010" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{bennett_2010,
+  author = {Bennett, Jane},
+  title = {The Agency of Assemblages in Vibrant matter: A political ecology of things},
+  publisher = {Duke University Press},
+  year = {2010},
+  pages = {20-38},
+  url = {https://read.dukeupress.edu/books/book/1346/vibrant-mattera-political-ecology-of-things},
+  doi = {https://doi.org/10.1215/9780822391623}
+}
+</pre></td>
+</tr>
+<tr id="lyon_2018" class="entry">
+	<td>Lyon, D.</td>
+	<td>The Culture Of Surveillance: Watching As A Way Of Life <p class="infolinks">[<a href="javascript:toggleInfo('lyon_2018','bibtex')">BibTeX</a>]</p></td>
+	<td>2018</td>
+	<td>, pp. 172&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_lyon_2018" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{lyon_2018,
+  author = {Lyon, David},
+  title = {The Culture Of Surveillance: Watching As A Way Of Life},
+  publisher = {Polity},
+  year = {2018},
+  pages = {172},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="finley_2014" class="entry">
+	<td>Finley, K.</td>
+	<td>The Internet of Things Could Drown Our Environment in Gadgets textbar WIRED <p class="infolinks">[<a href="javascript:toggleInfo('finley_2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://www.wired.com/2014/06/green-iot/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_finley_2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{finley_2014,
+  author = {Finley, Klint},
+  title = {The Internet of Things Could Drown Our Environment in Gadgets textbar WIRED},
+  year = {2014},
+  url = {https://www.wired.com/2014/06/green-iot/}
+}
+</pre></td>
+</tr>
+<tr id="han_2015" class="entry">
+	<td>Han, B.C.</td>
+	<td>The Transparency Society <p class="infolinks">[<a href="javascript:toggleInfo('han_2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_han_2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{han_2015,
+  author = {Han, Byung Chul},
+  title = {The Transparency Society},
+  publisher = {Stanford Briefs},
+  year = {2015},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="han_2017a" class="entry">
+	<td>Han, B.C.</td>
+	<td>Saving Beauty <p class="infolinks">[<a href="javascript:toggleInfo('han_2017a','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>, pp. 120&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_han_2017a" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{han_2017a,
+  author = {Han, Byung Chul},
+  title = {Saving Beauty},
+  publisher = {Polity},
+  year = {2017},
+  pages = {120},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="sequeira_website_2019" class="entry">
+	<td>Sequeira, N.</td>
+	<td>IoT Applications in Waste Management <p class="infolinks">[<a href="javascript:toggleInfo('sequeira_website_2019','bibtex')">BibTeX</a>]</p></td>
+	<td>2019</td>
+	<td>IoT For All&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.iotforall.com/iot-applications-waste-management/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_sequeira_website_2019" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{sequeira_website_2019,
+  author = {Sequeira, Neil},
+  title = {IoT Applications in Waste Management},
+  journal = {IoT For All},
+  year = {2019},
+  url = {https://www.iotforall.com/iot-applications-waste-management/}
+}
+</pre></td>
+</tr>
+<tr id="baudrillard_1994" class="entry">
+	<td>Baudrillard, J.</td>
+	<td>Simulacra And Simulation (the Body, In Theory: Histories Of Cultural Materialism) <p class="infolinks">[<a href="javascript:toggleInfo('baudrillard_1994','bibtex')">BibTeX</a>]</p></td>
+	<td>1994</td>
+	<td>, pp. 164&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_baudrillard_1994" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{baudrillard_1994,
+  author = {Baudrillard, Jean},
+  title = {Simulacra And Simulation (the Body, In Theory: Histories Of Cultural Materialism)},
+  publisher = {University Of Michigan Press},
+  year = {1994},
+  pages = {164},
+  edition = {14}
+}
+</pre></td>
+</tr>
+<tr id="leech_website_2011" class="entry">
+	<td>Leech, G.</td>
+	<td>James Bridle - Waving at the Machines <p class="infolinks">[<a href="javascript:toggleInfo('leech_website_2011','bibtex')">BibTeX</a>]</p></td>
+	<td>2011</td>
+	<td>Web Directions&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.webdirections.org/resources/james-bridle-waving-at-the-machines/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_leech_website_2011" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{leech_website_2011,
+  author = {Leech, Guy},
+  title = {James Bridle - Waving at the Machines},
+  journal = {Web Directions},
+  year = {2011},
+  url = {https://www.webdirections.org/resources/james-bridle-waving-at-the-machines/}
+}
+</pre></td>
+</tr>
+<tr id="mann_2001" class="entry">
+	<td>Mann, S.</td>
+	<td>Intelligent Image Processing, Vol. 1 <p class="infolinks">[<a href="javascript:toggleInfo('mann_2001','bibtex')">BibTeX</a>]</p></td>
+	<td>2001</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_mann_2001" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{mann_2001,
+  author = {Mann, Steve},
+  title = {Intelligent Image Processing, Vol. 1},
+  publisher = {Wiley, John &amp;amp; Sons, Incorporated},
+  year = {2001},
+  edition = {1st}
+}
+</pre></td>
+</tr>
+<tr id="mann_2004" class="entry">
+	<td>Mann, S.</td>
+	<td>"Sousveillance" Inverse surveillance in multimedia imaging <p class="infolinks">[<a href="javascript:toggleInfo('mann_2004','bibtex')">BibTeX</a>]</p></td>
+	<td>2004</td>
+	<td>Proceedings of the 12th annual ACM international conference on Multimedia - MULTIMEDIA '04, pp. 620&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="https://doi.org/10.1145/1027527.1027673">DOI</a> <a href="http://portal.acm.org/citation.cfm?doid=1027527.1027673">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_mann_2004" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{mann_2004,
+  author = {Mann, Steve},
+  title = {"Sousveillance" Inverse surveillance in multimedia imaging},
+  booktitle = {Proceedings of the 12th annual ACM international conference on Multimedia - MULTIMEDIA '04},
+  publisher = {ACM Press},
+  year = {2004},
+  pages = {620},
+  url = {http://portal.acm.org/citation.cfm?doid=1027527.1027673},
+  doi = {https://doi.org/10.1145/1027527.1027673}
+}
+</pre></td>
+</tr>
+<tr id="na_website_2019" class="entry">
+	<td>, G.V.R.</td>
+	<td>Internet of Things in Healthcare Market Size, Share &amp;amp; Trends Analysis Report By Component, By Connectivity Technology, By End Use, By Application And Segment Forecasts, 2019 - 2025 <p class="infolinks">[<a href="javascript:toggleInfo('na_website_2019','bibtex')">BibTeX</a>]</p></td>
+	<td>2019</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.reportlinker.com/p05763769/Internet-of-Things-in-Healthcare-Market-Size-Share-Trends-Analysis-Report-By-Component-By-Connectivity-Technology-By-End-Use-By-Application-And-Segment-Forecasts.html">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_2019" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_2019,
+  author = {, Grand View Research},
+  title = {Internet of Things in Healthcare Market Size, Share &amp;amp; Trends Analysis Report By Component, By Connectivity Technology, By End Use, By Application And Segment Forecasts, 2019 - 2025},
+  year = {2019},
+  url = {https://www.reportlinker.com/p05763769/Internet-of-Things-in-Healthcare-Market-Size-Share-Trends-Analysis-Report-By-Component-By-Connectivity-Technology-By-End-Use-By-Application-And-Segment-Forecasts.html}
+}
+</pre></td>
+</tr>
+<tr id="statista_website_2018" class="entry">
+	<td>Statista</td>
+	<td>Connected Device Usage Reasons Worldwide 2018 <p class="infolinks">[<a href="javascript:toggleInfo('statista_website_2018','bibtex')">BibTeX</a>]</p></td>
+	<td>2018</td>
+	<td>Statista&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.statista.com/statistics/917185/connected-device-usage-reasons-worldwide/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_statista_website_2018" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{statista_website_2018,
+  author = {Statista,},
+  title = {Connected Device Usage Reasons Worldwide 2018},
+  journal = {Statista},
+  year = {2018},
+  url = {https://www.statista.com/statistics/917185/connected-device-usage-reasons-worldwide/}
+}
+</pre></td>
+</tr>
+<tr id="mitchell_2006" class="entry">
+	<td>Mitchell, W.J.T.</td>
+	<td>What Do Pictures Want?: The Lives And Loves Of Images <p class="infolinks">[<a href="javascript:toggleInfo('mitchell_2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>, pp. 418&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_mitchell_2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{mitchell_2006,
+  author = {Mitchell, W. J. T.},
+  title = {What Do Pictures Want?: The Lives And Loves Of Images},
+  publisher = {University Of Chicago Press},
+  year = {2006},
+  pages = {418}
+}
+</pre></td>
+</tr>
+<tr id="nortje_website_2020" class="entry">
+	<td>Nortje, M.</td>
+	<td>IoT Assists With Challenges In Mining Operations <p class="infolinks">[<a href="javascript:toggleInfo('nortje_website_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>Creamer Media's Mining Weekly&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.miningweekly.com/article/iot-assists-with-challenges-in-mining-operations-2020-03-25/rep\_id:3650">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_nortje_website_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{nortje_website_2020,
+  author = {Nortje, Mc'kyla},
+  title = {IoT Assists With Challenges In Mining Operations},
+  journal = {Creamer Media's Mining Weekly},
+  year = {2020},
+  url = {https://www.miningweekly.com/article/iot-assists-with-challenges-in-mining-operations-2020-03-25/rep_id:3650}
+}
+</pre></td>
+</tr>
+<tr id="oneill_website_2018" class="entry">
+	<td>O'Neill, S.</td>
+	<td>As Insurers Offer Discounts For Fitness Trackers, Wearers Should Step With Caution <p class="infolinks">[<a href="javascript:toggleInfo('oneill_website_2018','bibtex')">BibTeX</a>]</p></td>
+	<td>2018</td>
+	<td>NPR&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.npr.org/sections/health-shots/2018/11/19/668266197/as-insurers-offer-discounts-for-fitness-trackers-wearers-should-step-with-caution">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_oneill_website_2018" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{oneill_website_2018,
+  author = {O'Neill, Stephanie},
+  title = {As Insurers Offer Discounts For Fitness Trackers, Wearers Should Step With Caution},
+  journal = {NPR},
+  year = {2018},
+  url = {https://www.npr.org/sections/health-shots/2018/11/19/668266197/as-insurers-offer-discounts-for-fitness-trackers-wearers-should-step-with-caution}
+}
+</pre></td>
+</tr>
+<tr id="plato_1951" class="entry">
+	<td>Plato</td>
+	<td>The Allegory of the Cave. <p class="infolinks">[<a href="javascript:toggleInfo('plato_1951','bibtex')">BibTeX</a>]</p></td>
+	<td>1951</td>
+	<td>The Republic Of Plato&nbsp;</td>
+	<td>incollection</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_plato_1951" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@incollection{plato_1951,
+  author = {Plato,},
+  title = {The Allegory of the Cave.},
+  booktitle = {The Republic Of Plato},
+  publisher = {Oxford University Press},
+  year = {1951},
+  edition = {1st Edition}
+}
+</pre></td>
+</tr>
+<tr id="theworldbank_website_2020" class="entry">
+	<td>The World Bank</td>
+	<td>Total Population <p class="infolinks">[<a href="javascript:toggleInfo('theworldbank_website_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>The World Bank&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://data.worldbank.org/indicator/sp.pop.totl">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_theworldbank_website_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{theworldbank_website_2020,
+  author = {The World Bank,},
+  title = {Total Population},
+  journal = {The World Bank},
+  year = {2020},
+  url = {https://data.worldbank.org/indicator/sp.pop.totl}
+}
+</pre></td>
+</tr>
+<tr id="statista_website_2020" class="entry">
+	<td>Statista</td>
+	<td>Internet of Things spending worldwide 2023 <p class="infolinks">[<a href="javascript:toggleInfo('statista_website_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>Statista&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.statista.com/statistics/668996/worldwide-expenditures-for-the-internet-of-things/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_statista_website_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{statista_website_2020,
+  author = {Statista,},
+  title = {Internet of Things spending worldwide 2023},
+  journal = {Statista},
+  year = {2020},
+  url = {https://www.statista.com/statistics/668996/worldwide-expenditures-for-the-internet-of-things/}
+}
+</pre></td>
+</tr>
+<tr id="stiegler_2008" class="entry">
+	<td>Stiegler, B., Petit, P. and Bontems, V.</td>
+	<td>Economie De L'hypermateriel Et Psychopouvoir <p class="infolinks">[<a href="javascript:toggleInfo('stiegler_2008','bibtex')">BibTeX</a>]</p></td>
+	<td>2008</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_stiegler_2008" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{stiegler_2008,
+  author = {Stiegler, Bernard and Petit, Philippe and Bontems, Vincent},
+  title = {Economie De L'hypermateriel Et Psychopouvoir},
+  publisher = {Mille et une nuits},
+  year = {2008}
+}
+</pre></td>
+</tr>
+<tr id="forbesinsightsteam_website_2019" class="entry">
+	<td>Forbes Insights Team</td>
+	<td>Forbes Insights: Can A Fitness Tracker Save Your Life? <p class="infolinks">[<a href="javascript:toggleInfo('forbesinsightsteam_website_2019','bibtex')">BibTeX</a>]</p></td>
+	<td>2019</td>
+	<td>Forbes Insights&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.forbes.com/sites/insights-teradata/2019/10/01/can-a-fitness-tracker-save-your-life/\#1d89f94847a2">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_forbesinsightsteam_website_2019" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{forbesinsightsteam_website_2019,
+  author = {Forbes Insights Team,},
+  title = {Forbes Insights: Can A Fitness Tracker Save Your Life?},
+  journal = {Forbes Insights},
+  year = {2019},
+  url = {https://www.forbes.com/sites/insights-teradata/2019/10/01/can-a-fitness-tracker-save-your-life/#1d89f94847a2}
+}
+</pre></td>
+</tr>
+<tr id="businessinsider_website_2020" class="entry">
+	<td>Business Insider</td>
+	<td>The Internet of Things Report <p class="infolinks">[<a href="javascript:toggleInfo('businessinsider_website_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>Business Insider Intelligence&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://store.businessinsider.com/products/the-internet-of-things-report?op=1">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_businessinsider_website_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{businessinsider_website_2020,
+  author = {Business Insider,},
+  title = {The Internet of Things Report},
+  journal = {Business Insider Intelligence},
+  year = {2020},
+  url = {https://store.businessinsider.com/products/the-internet-of-things-report?op=1}
+}
+</pre></td>
+</tr>
+<tr id="pbsnewshour_film_2013" class="entry">
+	<td>PBS NewsHour</td>
+	<td>The Quantified Self: Data Gone Wild? <p class="infolinks">[<a href="javascript:toggleInfo('pbsnewshour_film_2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('pbsnewshour_film_2013','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.youtube.com/watch?v={NP5okzCjrj0}">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_pbsnewshour_film_2013" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Take a look at these new technologies that allow people to keep track and quantify every detail of their daily lives. It's a growing movement called "quantified self." The personal data gathered is often health-related, but there are applications to measure productivity, time spent in REM sleep and, undoubtedly, time spent using these systems on your phone and laptop. Is this data gone wild?</td>
+</tr>
+<tr id="bib_pbsnewshour_film_2013" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{pbsnewshour_film_2013,
+  author = {PBS NewsHour,},
+  title = {The Quantified Self: Data Gone Wild?},
+  year = {2013},
+  url = {https://www.youtube.com/watch?v=NP5okzCjrj0}
+}
+</pre></td>
+</tr>
+<tr id="quantifiedself_website_nd" class="entry">
+	<td>Quantified Self</td>
+	<td>What is Quantified Self? <p class="infolinks">[<a href="javascript:toggleInfo('quantifiedself_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://quantifiedself.com/about/what-is-quantified-self/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_quantifiedself_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{quantifiedself_website_nd,
+  author = {Quantified Self,},
+  title = {What is Quantified Self?},
+  url = {https://quantifiedself.com/about/what-is-quantified-self/}
+}
+</pre></td>
+</tr>
+<tr id="woods_2012" class="entry">
+	<td>Woods, A.</td>
+	<td>Revolution: Hyper-personalisation - Up Close and Very Personal <p class="infolinks">[<a href="javascript:toggleInfo('woods_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_woods_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{woods_2012,
+  author = {Woods, Adam},
+  title = {Revolution: Hyper-personalisation - Up Close and Very Personal},
+  year = {2012}
+}
+</pre></td>
+</tr>
+<tr id="yeung_2017" class="entry">
+	<td>Yeung, K.</td>
+	<td>textquoteleftHypernudge&rsquo;: Big Data as a mode of regulation by design <p class="infolinks">[<a href="javascript:toggleInfo('yeung_2017','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('yeung_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>Information, Communication &amp;amp; Society<br/>Vol. 20(1), pp. 118-136&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1080/1369118X.2016.1186713">DOI</a> <a href="https://www.tandfonline.com/doi/full/10.1080/{1369118X}.2016.1186713">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_yeung_2017" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This paper draws on regulatory governance scholarship to argue that the analytic phenomenon currently known as textquoteleftBig Data&rsquo; can be understood as a mode of -based&rsquo; regulation. Although Big Data decision-making technologies can take the form of automated decision-making systems, this paper focuses on algorithmic decision-guidance techniques. By highlighting correlations between data items that would not otherwise be observable, these techniques are being used to shape the informational choice context in which individual decision-making occurs, with the aim of channelling attention and decision-making in directions preferred by the textquoteleftchoice architecttextquoteright. By relying upon the use of textquoteleftnudge&rsquo; – a particular form of choice architecture that alters peopletextquoterights behaviour in a predictable way without forbidding any options or significantly changing their economic incentives, these techniques constitute a textquoteleftsoft&rsquo; form of design-based control. But, unlike the static Nudges popularised by Thaler and Sunstein [(20...</td>
+</tr>
+<tr id="bib_yeung_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{yeung_2017,
+  author = {Yeung, Karen},
+  title = {textquoteleftHypernudge&rsquo;: Big Data as a mode of regulation by design},
+  journal = {Information, Communication &amp;amp; Society},
+  year = {2017},
+  volume = {20},
+  number = {1},
+  pages = {118-136},
+  url = {https://www.tandfonline.com/doi/full/10.1080/1369118X.2016.1186713},
+  doi = {https://doi.org/10.1080/1369118X.2016.1186713}
+}
+</pre></td>
+</tr>
+<tr id="na_website_nd" class="entry">
+	<td></td>
+	<td>The Five Whys Technique textbar Asian Development Bank <p class="infolinks">[<a href="javascript:toggleInfo('na_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.adb.org/publications/five-whys-technique">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_nd,,
+  title = {The Five Whys Technique textbar Asian Development Bank},
+  url = {https://www.adb.org/publications/five-whys-technique}
+}
+</pre></td>
+</tr>
+<tr id="na_website_nda" class="entry">
+	<td></td>
+	<td>Hyper textbar Definition of Hyper by Merriam-Webster <p class="infolinks">[<a href="javascript:toggleInfo('na_website_nda','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.merriam-webster.com/dictionary/hyper">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_nda" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_nda,,
+  title = {Hyper textbar Definition of Hyper by Merriam-Webster},
+  url = {https://www.merriam-webster.com/dictionary/hyper}
+}
+</pre></td>
+</tr>
+<tr id="oxfordenglishdictionary_website_nd" class="entry">
+	<td>Oxford English Dictionary</td>
+	<td>"hyper-, prefix". <p class="infolinks">[<a href="javascript:toggleInfo('oxfordenglishdictionary_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_oxfordenglishdictionary_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{oxfordenglishdictionary_website_nd,
+  author = {Oxford English Dictionary,},
+  title = {"hyper-, prefix".}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndb" class="entry">
+	<td></td>
+	<td>Dictionnaire de ltextquoterightAcadémie française textbar 9e édition textbar hyperbole <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndb','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.dictionnaire-academie.fr/article/{A9H1285}">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndb" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndb,,
+  title = {Dictionnaire de ltextquoterightAcadémie française textbar 9e édition textbar hyperbole},
+  url = {https://www.dictionnaire-academie.fr/article/A9H1285}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndc" class="entry">
+	<td></td>
+	<td>William Chillingworth textbar Encyclopedia.com <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndc','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.encyclopedia.com/history/encyclopedias-almanacs-transcripts-and-maps/chillingworth-william">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndc" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndc,,
+  title = {William Chillingworth textbar Encyclopedia.com},
+  url = {https://www.encyclopedia.com/history/encyclopedias-almanacs-transcripts-and-maps/chillingworth-william}
+}
+</pre></td>
+</tr>
+<tr id="speake_2003" class="entry">
+	<td>Speake, J.</td>
+	<td>Literature of travel and exploration: An encyclopedia <p class="infolinks">[<a href="javascript:toggleInfo('speake_2003','bibtex')">BibTeX</a>]</p></td>
+	<td>2003</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_speake_2003" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{speake_2003,
+  author = {Speake, Jennifer.},
+  title = {Literature of travel and exploration: An encyclopedia},
+  publisher = {Routledge},
+  year = {2003}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndd" class="entry">
+	<td></td>
+	<td>Coryattextquoterights Crudities – The Rosenbach <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://rosenbach.org/blog/coryats-crudities/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndd,,
+  title = {Coryattextquoterights Crudities – The Rosenbach},
+  url = {https://rosenbach.org/blog/coryats-crudities/}
+}
+</pre></td>
+</tr>
+<tr id="morton_2012" class="entry">
+	<td>Morton, T.</td>
+	<td>The Ecological Thought <p class="infolinks">[<a href="javascript:toggleInfo('morton_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>, pp. 184&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_morton_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{morton_2012,
+  author = {Morton, Timothy},
+  title = {The Ecological Thought},
+  publisher = {Harvard University Press},
+  year = {2012},
+  pages = {184}
+}
+</pre></td>
+</tr>
+<tr id="morton_2013" class="entry">
+	<td>Morton, T.</td>
+	<td>Hyperobjects: Philosophy and Ecology after the End of the World (Posthumanities) <p class="infolinks">[<a href="javascript:toggleInfo('morton_2013','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td>, pp. 240&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_morton_2013" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{morton_2013,
+  author = {Morton, Timothy},
+  title = {Hyperobjects: Philosophy and Ecology after the End of the World (Posthumanities)},
+  publisher = {Univ Of Minnesota Press},
+  year = {2013},
+  pages = {240},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="na_website_nde" class="entry">
+	<td></td>
+	<td>Hyper Real <p class="infolinks">[<a href="javascript:toggleInfo('na_website_nde','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://nga.gov.au/hyperreal/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_nde" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_nde,,
+  title = {Hyper Real},
+  url = {https://nga.gov.au/hyperreal/}
+}
+</pre></td>
+</tr>
+<tr id="baudrillard_1983" class="entry">
+	<td>Baudrillard, J.</td>
+	<td>Simulations <p class="infolinks">[<a href="javascript:toggleInfo('baudrillard_1983','bibtex')">BibTeX</a>]</p></td>
+	<td>1983</td>
+	<td>, pp. 159&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_baudrillard_1983" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{baudrillard_1983,
+  author = {Baudrillard, Jean},
+  title = {Simulations},
+  publisher = {Semiotext(e)},
+  year = {1983},
+  pages = {159},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndf" class="entry">
+	<td></td>
+	<td>Hyperreal textbar Definition of Hyperreal by Merriam-Webster <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndf','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.merriam-webster.com/dictionary/hyperreal">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndf" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndf,,
+  title = {Hyperreal textbar Definition of Hyperreal by Merriam-Webster},
+  url = {https://www.merriam-webster.com/dictionary/hyperreal}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndg" class="entry">
+	<td></td>
+	<td>User:Abscissa - Wikipedia <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndg','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://en.wikipedia.org/wiki/User:Abscissa">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndg" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndg,,
+  title = {User:Abscissa - Wikipedia},
+  url = {https://en.wikipedia.org/wiki/User:Abscissa}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndh" class="entry">
+	<td></td>
+	<td>Hyperreality - Wikipedia <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndh','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://en.wikipedia.org/w/index.php?title=Hyperreality\&direction=next\&oldid=54304527">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndh" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndh,,
+  title = {Hyperreality - Wikipedia},
+  url = {https://en.wikipedia.org/w/index.php?title=Hyperreality&amp;amp;direction=next&amp;amp;oldid=54304527}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndi" class="entry">
+	<td></td>
+	<td>Wikipedia:Citing sources - Wikipedia <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndi','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://en.wikipedia.org/wiki/Wikipedia:Citing\_sources">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndi" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndi,,
+  title = {Wikipedia:Citing sources - Wikipedia},
+  url = {https://en.wikipedia.org/wiki/Wikipedia:Citing_sources}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndj" class="entry">
+	<td></td>
+	<td>Hyperreality - Wikipedia <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndj','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://en.wikipedia.org/w/index.php?title=Hyperreality\&oldid=925812654">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndj" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndj,,
+  title = {Hyperreality - Wikipedia},
+  url = {https://en.wikipedia.org/w/index.php?title=Hyperreality&amp;amp;oldid=925812654}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndk" class="entry">
+	<td></td>
+	<td>Kepner-Tregoe - Solution-Caused Problems and How to Prevent Them <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndk','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.kepner-tregoe.com/knowledge-center/articles/problem-solving/solution-caused-problems-and-how-to-prevent-them/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndk" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndk,,
+  title = {Kepner-Tregoe - Solution-Caused Problems and How to Prevent Them},
+  url = {https://www.kepner-tregoe.com/knowledge-center/articles/problem-solving/solution-caused-problems-and-how-to-prevent-them/}
+}
+</pre></td>
+</tr>
+<tr id="sebagmontefiore_2001" class="entry">
+	<td>Sebag Montefiore, S.</td>
+	<td>The Prince of Princes: The Life of Potemkin <p class="infolinks">[<a href="javascript:toggleInfo('sebagmontefiore_2001','bibtex')">BibTeX</a>]</p></td>
+	<td>2001</td>
+	<td>, pp. 656&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_sebagmontefiore_2001" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{sebagmontefiore_2001,
+  author = {Sebag Montefiore, Simon},
+  title = {The Prince of Princes: The Life of Potemkin},
+  publisher = {Weidenfeld Nicholson History},
+  year = {2001},
+  pages = {656},
+  edition = {First Paperback Edition}
+}
+</pre></td>
+</tr>
+<tr id="bentham_2017" class="entry">
+	<td>Bentham, J.</td>
+	<td>Correspondence of Jeremy Bentham <p class="infolinks">[<a href="javascript:toggleInfo('bentham_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td><br/>Vol. 3&nbsp;</td>
+	<td>book</td>
+	<td><a href="https://doi.org/10.2307/j.ctt1qnw8jw">DOI</a> <a href="http://www.jstor.org/stable/10.2307/j.ctt1qnw8jw">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_bentham_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{bentham_2017,
+  author = {Bentham, Jeremy},
+  title = {Correspondence of Jeremy Bentham},
+  publisher = {UCL Press},
+  year = {2017},
+  volume = {3},
+  url = {http://www.jstor.org/stable/10.2307/j.ctt1qnw8jw},
+  doi = {https://doi.org/10.2307/j.ctt1qnw8jw}
+}
+</pre></td>
+</tr>
+<tr id="werrett_1999" class="entry">
+	<td>Werrett, S.</td>
+	<td>Potemkin and the Panopticon: Samuel Bentham and the Architecture of Absolutism in Eighteenth Century Russia <p class="infolinks">[<a href="javascript:toggleInfo('werrett_1999','bibtex')">BibTeX</a>]</p></td>
+	<td>1999</td>
+	<td>Bahasa dan Seni : Jurnal Bahasa, Sastra, Seni, dan Pengajarannya&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.14324/111.2045-757X.010">DOI</a> <a href="https://scienceopen.com/document?vid=ab6c0171-63d6-45ed-b646-3acfa0c2a4e6">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_werrett_1999" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{werrett_1999,
+  author = {Werrett, Simon},
+  title = {Potemkin and the Panopticon: Samuel Bentham and the Architecture of Absolutism in Eighteenth Century Russia},
+  journal = {Bahasa dan Seni : Jurnal Bahasa, Sastra, Seni, dan Pengajarannya},
+  year = {1999},
+  url = {https://scienceopen.com/document?vid=ab6c0171-63d6-45ed-b646-3acfa0c2a4e6},
+  doi = {https://doi.org/10.14324/111.2045-757X.010}
+}
+</pre></td>
+</tr>
+<tr id="bentham_2011" class="entry">
+	<td>Bentham, J., Bowring, J. and Burton, J.</td>
+	<td>The Works of Jeremy Bentham, published under the superintendence of his executor, John Bowring. <p class="infolinks">[<a href="javascript:toggleInfo('bentham_2011','bibtex')">BibTeX</a>]</p></td>
+	<td>2011</td>
+	<td>, pp. 628&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_bentham_2011" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{bentham_2011,
+  author = {Bentham, Jeremy and Bowring, John and Burton, J.H.},
+  title = {The Works of Jeremy Bentham, published under the superintendence of his executor, John Bowring.},
+  publisher = {British Library, Historical Print Editions},
+  year = {2011},
+  pages = {628}
+}
+</pre></td>
+</tr>
+<tr id="foucault_1995" class="entry">
+	<td>Foucault, M.</td>
+	<td>Discipline &amp;amp; Punish: The Birth of the Prison <p class="infolinks">[<a href="javascript:toggleInfo('foucault_1995','bibtex')">BibTeX</a>]</p></td>
+	<td>1995</td>
+	<td>, pp. 333&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_foucault_1995" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{foucault_1995,
+  author = {Foucault, Michel},
+  title = {Discipline &amp;amp; Punish: The Birth of the Prison},
+  publisher = {Vintage Books},
+  year = {1995},
+  pages = {333},
+  edition = {Reprint}
+}
+</pre></td>
+</tr>
+<tr id="semple_1993" class="entry">
+	<td>Semple, J.</td>
+	<td>Bentham's Prison: A Study of the Panopticon Penitentiary <p class="infolinks">[<a href="javascript:toggleInfo('semple_1993','bibtex')">BibTeX</a>]</p></td>
+	<td>1993</td>
+	<td>, pp. 360&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_semple_1993" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{semple_1993,
+  author = {Semple, Janet},
+  title = {Bentham's Prison: A Study of the Panopticon Penitentiary},
+  publisher = {Clarendon Press},
+  year = {1993},
+  pages = {360},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndl" class="entry">
+	<td></td>
+	<td>Travel <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndl','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://travel.state.gov/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndl" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndl,,
+  title = {Travel},
+  url = {https://travel.state.gov/}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndm" class="entry">
+	<td></td>
+	<td>Number of Employers Using Social Media to Screen Candidates at All-Time High, Finds Latest CareerBuilder Study <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndm','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.prnewswire.com/news-releases/number-of-employers-using-social-media-to-screen-candidates-at-all-time-high-finds-latest-careerbuilder-study-300474228.html">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndm" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndm,,
+  title = {Number of Employers Using Social Media to Screen Candidates at All-Time High, Finds Latest CareerBuilder Study},
+  url = {https://www.prnewswire.com/news-releases/number-of-employers-using-social-media-to-screen-candidates-at-all-time-high-finds-latest-careerbuilder-study-300474228.html}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndn" class="entry">
+	<td></td>
+	<td>Chinese telecom giant ZTE 'helped Venezuela develop social credit system' - ABC News <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndn','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.abc.net.au/news/2018-11-16/chinese-tech-giant-zte-helps-venezuela-develop-fatherland-card/10503736">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndn" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndn,,
+  title = {Chinese telecom giant ZTE 'helped Venezuela develop social credit system' - ABC News},
+  url = {https://www.abc.net.au/news/2018-11-16/chinese-tech-giant-zte-helps-venezuela-develop-fatherland-card/10503736}
+}
+</pre></td>
+</tr>
+<tr id="deleuze_2006" class="entry">
+	<td>Deleuze, G.</td>
+	<td>Two Regimes of Madness: Texts and Interviews 1975-1995 (Semiotext(e) / Foreign Agents) <p class="infolinks">[<a href="javascript:toggleInfo('deleuze_2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>, pp. 416&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_deleuze_2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{deleuze_2006,
+  author = {Deleuze, Gilles},
+  title = {Two Regimes of Madness: Texts and Interviews 1975-1995 (Semiotext(e) / Foreign Agents)},
+  publisher = {Semiotext(e)},
+  year = {2006},
+  pages = {416},
+  edition = {1st}
+}
+</pre></td>
+</tr>
+<tr id="nelson_website_nd" class="entry">
+	<td>Nelson, T.H.</td>
+	<td>Selected Papers, 1977 : Theodor Holm Nelson <p class="infolinks">[<a href="javascript:toggleInfo('nelson_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://archive.org/details/{SelectedPapers1977}/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_nelson_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{nelson_website_nd,
+  author = {Nelson, Theodor Holm},
+  title = {Selected Papers, 1977 : Theodor Holm Nelson},
+  url = {https://archive.org/details/SelectedPapers1977/}
+}
+</pre></td>
+</tr>
+<tr id="hofmann_2015" class="entry">
+	<td>Hofmann, W. and Nordgren, L.F.</td>
+	<td>The Psychology of Desire <p class="infolinks">[<a href="javascript:toggleInfo('hofmann_2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_hofmann_2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{hofmann_2015,
+  author = {Hofmann, Wilhelm and Nordgren, Loran F.},
+  title = {The Psychology of Desire},
+  publisher = {The Guilford Press},
+  year = {2015}
+}
+</pre></td>
+</tr>
+<tr id="may_2012" class="entry">
+	<td>May, J., Andrade, J., Kavanagh, D.J. and Hetherington, M.</td>
+	<td>Elaborated Intrusion Theory: A Cognitive-Emotional Theory of Food Craving <p class="infolinks">[<a href="javascript:toggleInfo('may_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>Current obesity reports<br/>Vol. 1(2), pp. 114-121&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1007/s13679-012-0010-2">DOI</a> <a href="http://link.springer.com/10.1007/s13679-012-0010-2">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_may_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{may_2012,
+  author = {May, Jon and Andrade, Jackie and Kavanagh, David J. and Hetherington, Marion},
+  title = {Elaborated Intrusion Theory: A Cognitive-Emotional Theory of Food Craving},
+  journal = {Current obesity reports},
+  year = {2012},
+  volume = {1},
+  number = {2},
+  pages = {114-121},
+  url = {http://link.springer.com/10.1007/s13679-012-0010-2},
+  doi = {https://doi.org/10.1007/s13679-012-0010-2}
+}
+</pre></td>
+</tr>
+<tr id="kavanagh_2009" class="entry">
+	<td>Kavanagh, D.J., May, J. and Andrade, J.</td>
+	<td>Tests of the elaborated intrusion theory of craving and desire: Features of alcohol craving during treatment for an alcohol disorder. <p class="infolinks">[<a href="javascript:toggleInfo('kavanagh_2009','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('kavanagh_2009','bibtex')">BibTeX</a>]</p></td>
+	<td>2009</td>
+	<td>The British Journal of Clinical Psychology<br/>Vol. 48(Pt 3), pp. 241-254&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1348/014466508X387071">DOI</a> <a href="http://dx.doi.org/10.1348/{014466508X387071}">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_kavanagh_2009" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: OBJECTIVES: We tested predictions from the elaborated intrusion (EI) theory of desire, which distinguishes intrusive thoughts and elaborations, and emphasizes the importance of imagery. Secondarily, we undertook preliminary evaluations of the Alcohol Craving Experience (ACE) questionnaire, a new measure based on EI Theory. METHODS: Participants (N = 232) were in correspondence-based treatment trials for alcohol abuse or dependence. The study used retrospective reports obtained early in treatment using the ACE, and daily self-monitoring of urges, craving, mood and alcohol consumption. RESULTS: The ACE displayed high internal consistency and test - retest reliability and sound relationships with self-monitored craving, and was related to Baseline alcohol dependence, but not to consumption. Imagery during craving was experienced by 81%, with 2.3 senses involved on average. More frequent imagery was associated with longer episode durations and stronger craving. Transient intrusive thoughts were reported by 87% of respondents, and were more common if they frequently attempted to stop alcohol cognitions. Associations between average daily craving and weekly consumption were seen. Depression and negative mood were associated with more frequent, stronger and longer lasting desires for alcohol. CONCLUSIONS: Results supported the distinction of automatic and controlled processes in craving, together with the importance of craving imagery. They were also consistent with prediction of consumption from cross-situational averages of craving, and with positive associations between craving and negative mood. However, this study's retrospective reporting and correlational design require that its results be interpreted cautiously. Research using ecological momentary measures and laboratory manipulations is needed before confident inferences about causality can be made.</td>
+</tr>
+<tr id="bib_kavanagh_2009" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{kavanagh_2009,
+  author = {Kavanagh, David J and May, Jon and Andrade, Jackie},
+  title = {Tests of the elaborated intrusion theory of craving and desire: Features of alcohol craving during treatment for an alcohol disorder.},
+  journal = {The British Journal of Clinical Psychology},
+  year = {2009},
+  volume = {48},
+  number = {Pt 3},
+  pages = {241-254},
+  url = {http://dx.doi.org/10.1348/014466508X387071},
+  doi = {https://doi.org/10.1348/014466508X387071}
+}
+</pre></td>
+</tr>
+<tr id="hobbes_2009" class="entry">
+	<td>Hobbes, T.</td>
+	<td>Leviathan <p class="infolinks">[<a href="javascript:toggleInfo('hobbes_2009','bibtex')">BibTeX</a>]</p></td>
+	<td>2009</td>
+	<td>, pp. 314&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_hobbes_2009" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{hobbes_2009,
+  author = {Hobbes, Thomas},
+  title = {Leviathan},
+  publisher = {CreateSpace Independent Publishing Platform},
+  year = {2009},
+  pages = {314},
+  edition = {2009}
+}
+</pre></td>
+</tr>
+<tr id="rousseau_2007" class="entry">
+	<td>Rousseau, J.-J.</td>
+	<td>The Social Contract <p class="infolinks">[<a href="javascript:toggleInfo('rousseau_2007','bibtex')">BibTeX</a>]</p></td>
+	<td>2007</td>
+	<td>, pp. 168&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_rousseau_2007" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{rousseau_2007,
+  author = {Rousseau, Jean-Jacques},
+  title = {The Social Contract},
+  publisher = {BN Publishing},
+  year = {2007},
+  pages = {168}
+}
+</pre></td>
+</tr>
+<tr id="duval_1972" class="entry">
+	<td>Duval, S.</td>
+	<td>A theory of objective self awareness (Social psychology) <p class="infolinks">[<a href="javascript:toggleInfo('duval_1972','bibtex')">BibTeX</a>]</p></td>
+	<td>1972</td>
+	<td>, pp. 238&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_duval_1972" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{duval_1972,
+  author = {Duval, Shelley},
+  title = {A theory of objective self awareness (Social psychology)},
+  publisher = {Academic Press},
+  year = {1972},
+  pages = {238}
+}
+</pre></td>
+</tr>
+<tr id="schroeder_2020" class="entry">
+	<td>Schroeder, T.</td>
+	<td>Desire <p class="infolinks">[<a href="javascript:toggleInfo('schroeder_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>Stanford Encyclopedia of Philosophy&nbsp;</td>
+	<td>incollection</td>
+	<td><a href="https://plato.stanford.edu/archives/sum2020/entries/desire">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_schroeder_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@incollection{schroeder_2020,
+  author = {Schroeder, Tim},
+  title = {Desire},
+  booktitle = {Stanford Encyclopedia of Philosophy},
+  year = {2020},
+  edition = {Summer 2020 Edition},
+  url = {https://plato.stanford.edu/archives/sum2020/entries/desire}
+}
+</pre></td>
+</tr>
+<tr id="aristotle_1987" class="entry">
+	<td>Aristotle</td>
+	<td>De Anima (On the Soul) (Penguin Classics) <p class="infolinks">[<a href="javascript:toggleInfo('aristotle_1987','bibtex')">BibTeX</a>]</p></td>
+	<td>1987</td>
+	<td>, pp. 256&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_aristotle_1987" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{aristotle_1987,
+  author = {Aristotle,},
+  title = {De Anima (On the Soul) (Penguin Classics)},
+  publisher = {Penguin Classics},
+  year = {1987},
+  pages = {256},
+  edition = {Reissue}
+}
+</pre></td>
+</tr>
+<tr id="burton_2004" class="entry">
+	<td>Burton, D.</td>
+	<td>Buddhism, Knowledge and Liberation: A Philosophical Study (Ashgate World Philosophies Series) <p class="infolinks">[<a href="javascript:toggleInfo('burton_2004','bibtex')">BibTeX</a>]</p></td>
+	<td>2004</td>
+	<td>, pp. 200&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_burton_2004" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{burton_2004,
+  author = {Burton, David},
+  title = {Buddhism, Knowledge and Liberation: A Philosophical Study (Ashgate World Philosophies Series)},
+  publisher = {Routledge},
+  year = {2004},
+  pages = {200},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="kavanagh_2005" class="entry">
+	<td>Kavanagh, D., Andrade, J. and May, J.</td>
+	<td>Imaginary relish and exquisite torture: <p class="infolinks">[<a href="javascript:toggleInfo('kavanagh_2005','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('kavanagh_2005','bibtex')">BibTeX</a>]</p></td>
+	<td>2005</td>
+	<td>Psychology Review<br/>Vol. 112&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="abs_kavanagh_2005" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We argue that human desire involves conscious cognition that has strong affective connotation and is potentially involved in the determination of appetitive behavior rather than being epiphenomenal to it. Intrusive thoughts about appetitive targets are triggered automatically by external or physiological cues and by cognitive associates. . When intrusions elicit significant pleasure or relief, cognitive elaboration usually ensues. Elaboration competes with concurrent cognitive tasks through retrieval of target-related information and its retention in working memory. Sensory images are especially important products of intrusion and elaboration, since they simulate the sensory and emotional qualities of target acquisition. Desire images are momentarily rewarding, but amplify awareness of somatic and emotional deficits. Effects of desires on behavior are moderated by competing incentives, target availability and skills. The theory provides a coherent account of existing data and suggests new directions for research and treatment.</td>
+</tr>
+<tr id="bib_kavanagh_2005" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{kavanagh_2005,
+  author = {Kavanagh, David and Andrade, Jackie and May, John},
+  title = {Imaginary relish and exquisite torture:},
+  journal = {Psychology Review},
+  year = {2005},
+  volume = {112}
+}
+</pre></td>
+</tr>
+<tr id="greenfield_2017" class="entry">
+	<td>Greenfield, A.</td>
+	<td>Radical Technologies: The Design of Everyday Life <p class="infolinks">[<a href="javascript:toggleInfo('greenfield_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>, pp. 368&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_greenfield_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{greenfield_2017,
+  author = {Greenfield, Adam},
+  title = {Radical Technologies: The Design of Everyday Life},
+  publisher = {Verso},
+  year = {2017},
+  pages = {368}
+}
+</pre></td>
+</tr>
+<tr id="charlie_website_2019" class="entry">
+	<td>Charlie, C.</td>
+	<td>How China Is Using Big Data to Create a Social Credit Score <p class="infolinks">[<a href="javascript:toggleInfo('charlie_website_2019','bibtex')">BibTeX</a>]</p></td>
+	<td>2019</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://time.com/collection/davos-2019/5502592/china-social-credit-score/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_charlie_website_2019" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{charlie_website_2019,
+  author = {Charlie, Campbell},
+  title = {How China Is Using Big Data to Create a Social Credit Score},
+  year = {2019},
+  url = {https://time.com/collection/davos-2019/5502592/china-social-credit-score/}
+}
+</pre></td>
+</tr>
+<tr id="meissner_2017" class="entry">
+	<td>Meissner, M.</td>
+	<td>Chinatextquoterights Social Credit System: A Big-Data Enabled Approach to Market Regulation with Broad Implications for Doing Business in China <p class="infolinks">[<a href="javascript:toggleInfo('meissner_2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>&nbsp;</td>
+	<td>techreport</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_meissner_2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@techreport{meissner_2017,
+  author = {Meissner, Mirjam},
+  title = {Chinatextquoterights Social Credit System: A Big-Data Enabled Approach to Market Regulation with Broad Implications for Doing Business in China},
+  publisher = {MERICS textbar Mercator Institute for China Studies},
+  year = {2017}
+}
+</pre></td>
+</tr>
+<tr id="na_2020" class="entry">
+	<td></td>
+	<td>Volition, n. <p class="infolinks">[<a href="javascript:toggleInfo('na_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>OED Online&nbsp;</td>
+	<td>incollection</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_na_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@incollection{na_2020,,
+  title = {Volition, n.},
+  booktitle = {OED Online},
+  publisher = {Oxford University Press},
+  year = {2020}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndo" class="entry">
+	<td></td>
+	<td>volition <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndo','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>Merriam-Webster Dictionary&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.merriam-webster.com/dictionary/volition">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndo" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndo,,
+  title = {volition},
+  journal = {Merriam-Webster Dictionary},
+  url = {https://www.merriam-webster.com/dictionary/volition}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndp" class="entry">
+	<td></td>
+	<td>Volition textbar meaning in the Cambridge English Dictionary <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndp','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://dictionary.cambridge.org/dictionary/english/volition">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndp" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndp,,
+  title = {Volition textbar meaning in the Cambridge English Dictionary},
+  url = {https://dictionary.cambridge.org/dictionary/english/volition}
+}
+</pre></td>
+</tr>
+<tr id="na_website_2020" class="entry">
+	<td>, S.</td>
+	<td>IoT spending drivers worldwide 2019 <p class="infolinks">[<a href="javascript:toggleInfo('na_website_2020','bibtex')">BibTeX</a>]</p></td>
+	<td>2020</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.statista.com/statistics/1079622/iot-spending-drivers-worldwide/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_2020" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_2020,
+  author = {, Statista},
+  title = {IoT spending drivers worldwide 2019},
+  year = {2020},
+  url = {https://www.statista.com/statistics/1079622/iot-spending-drivers-worldwide/}
+}
+</pre></td>
+</tr>
+<tr id="crichton_2012" class="entry">
+	<td>Crichton, M.</td>
+	<td>Jurassic Park: A Novel <p class="infolinks">[<a href="javascript:toggleInfo('crichton_2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>, pp. 464&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_crichton_2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{crichton_2012,
+  author = {Crichton, Michael},
+  title = {Jurassic Park: A Novel},
+  publisher = {Ballantine Books},
+  year = {2012},
+  pages = {464}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndq" class="entry">
+	<td></td>
+	<td>HR reading consistently high last few days : fitbit <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndq','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.reddit.com/r/fitbit/comments/445ppj/hr\_reading\_consistently\_high\_last\_few\_days/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndq" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndq,,
+  title = {HR reading consistently high last few days : fitbit},
+  url = {https://www.reddit.com/r/fitbit/comments/445ppj/hr_reading_consistently_high_last_few_days/}
+}
+</pre></td>
+</tr>
+<tr id="na_website_ndr" class="entry">
+	<td></td>
+	<td>Understanding Stitch Fix: Finding the Perfect Fit – Goodwater Capital <p class="infolinks">[<a href="javascript:toggleInfo('na_website_ndr','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.goodwatercap.com/thesis/understanding-stitch-fix">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_ndr" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_ndr,,
+  title = {Understanding Stitch Fix: Finding the Perfect Fit – Goodwater Capital},
+  url = {https://www.goodwatercap.com/thesis/understanding-stitch-fix}
+}
+</pre></td>
+</tr>
+<tr id="foucault_2003" class="entry">
+	<td>Foucault, M.</td>
+	<td>"Society Must Be Defended": Lectures at the Collège de France, 1975-1976 (Michel Foucault Lectures at the Collège de France, 5) <p class="infolinks">[<a href="javascript:toggleInfo('foucault_2003','bibtex')">BibTeX</a>]</p></td>
+	<td>2003</td>
+	<td>, pp. 336&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_foucault_2003" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{foucault_2003,
+  author = {Foucault, Michel},
+  title = {"Society Must Be Defended": Lectures at the Collège de France, 1975-1976 (Michel Foucault Lectures at the Collège de France, 5)},
+  publisher = {Picador},
+  year = {2003},
+  pages = {336},
+  edition = {First}
+}
+</pre></td>
+</tr>
+<tr id="foucault_1978" class="entry">
+	<td>Foucault, M.</td>
+	<td>The History of Sexuality: Volume I: An Introduction <p class="infolinks">[<a href="javascript:toggleInfo('foucault_1978','bibtex')">BibTeX</a>]</p></td>
+	<td>1978</td>
+	<td>, pp. 168&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_foucault_1978" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{foucault_1978,
+  author = {Foucault, Michel},
+  title = {The History of Sexuality: Volume I: An Introduction},
+  publisher = {Pantheon Books},
+  year = {1978},
+  pages = {168},
+  edition = {1st American}
+}
+</pre></td>
+</tr>
+<tr id="smith_2006" class="entry">
+	<td>Smith, D.W.</td>
+	<td>The concept of the simulacrum: Deleuze and the overturning of Platonism <p class="infolinks">[<a href="javascript:toggleInfo('smith_2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>Continental Philosophy Review<br/>Vol. 38(1-2), pp. 89-123&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1007/s11007-006-3305-8">DOI</a> <a href="http://link.springer.com/10.1007/s11007-006-3305-8">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_smith_2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{smith_2006,
+  author = {Smith, Daniel W.},
+  title = {The concept of the simulacrum: Deleuze and the overturning of Platonism},
+  journal = {Continental Philosophy Review},
+  year = {2006},
+  volume = {38},
+  number = {1-2},
+  pages = {89-123},
+  url = {http://link.springer.com/10.1007/s11007-006-3305-8},
+  doi = {https://doi.org/10.1007/s11007-006-3305-8}
+}
+</pre></td>
+</tr>
+<tr id="deleuze_1995" class="entry">
+	<td>Deleuze, G.</td>
+	<td>Difference and Repetition <p class="infolinks">[<a href="javascript:toggleInfo('deleuze_1995','bibtex')">BibTeX</a>]</p></td>
+	<td>1995</td>
+	<td>, pp. 350&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_deleuze_1995" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{deleuze_1995,
+  author = {Deleuze, Gilles},
+  title = {Difference and Repetition},
+  publisher = {Columbia University Press},
+  year = {1995},
+  pages = {350},
+  edition = {Revised}
+}
+</pre></td>
+</tr>
+<tr id="na_website_nds" class="entry">
+	<td></td>
+	<td>reality, hyperreality (1) <p class="infolinks">[<a href="javascript:toggleInfo('na_website_nds','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="http://csmt.uchicago.edu/glossary2004/realityhyperreality.htm">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_na_website_nds" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{na_website_nds,,
+  title = {reality, hyperreality (1)},
+  url = {http://csmt.uchicago.edu/glossary2004/realityhyperreality.htm}
+}
+</pre></td>
+</tr>
+<tr id="foucault_1980" class="entry">
+	<td>Foucault, M. and Gordon, C.</td>
+	<td>Power/knowledge: Selected interviews and other writings, 1972-1977 <p class="infolinks">[<a href="javascript:toggleInfo('foucault_1980','bibtex')">BibTeX</a>]</p></td>
+	<td>1980</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_foucault_1980" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{foucault_1980,
+  author = {Foucault, Michel and Gordon, Colin},
+  title = {Power/knowledge: Selected interviews and other writings, 1972-1977},
+  publisher = {Pantheon Books},
+  year = {1980},
+  edition = {1st American}
+}
+</pre></td>
+</tr>
+<tr id="leetaru_website_2019" class="entry">
+	<td>Leetaru, K.</td>
+	<td>Data Isn't 'Truth' <p class="infolinks">[<a href="javascript:toggleInfo('leetaru_website_2019','bibtex')">BibTeX</a>]</p></td>
+	<td>2019</td>
+	<td>Forbes&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.forbes.com/sites/kalevleetaru/2019/05/07/data-isnt-truth/?sh=31a01463789f">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_leetaru_website_2019" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{leetaru_website_2019,
+  author = {Leetaru, Kalev},
+  title = {Data Isn't 'Truth'},
+  journal = {Forbes},
+  year = {2019},
+  url = {https://www.forbes.com/sites/kalevleetaru/2019/05/07/data-isnt-truth/?sh=31a01463789f}
+}
+</pre></td>
+</tr>
+<tr id="han_2018" class="entry">
+	<td>Han, B.C.</td>
+	<td>Topology of Violence <p class="infolinks">[<a href="javascript:toggleInfo('han_2018','bibtex')">BibTeX</a>]</p></td>
+	<td>2018</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_han_2018" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{han_2018,
+  author = {Han, Byung Chul},
+  title = {Topology of Violence},
+  publisher = {MIT Press},
+  year = {2018}
+}
+</pre></td>
+</tr>
+<tr id="han_2015a" class="entry">
+	<td>Han, B.C.</td>
+	<td>The Burnout Society <p class="infolinks">[<a href="javascript:toggleInfo('han_2015a','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>, pp. 72&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_han_2015a" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{han_2015a,
+  author = {Han, Byung Chul},
+  title = {The Burnout Society},
+  publisher = {Stanford Briefs},
+  year = {2015},
+  pages = {72},
+  edition = {1}
+}
+</pre></td>
+</tr>
+<tr id="shafford_website_2014" class="entry">
+	<td>Shafford, T.</td>
+	<td>Psychology: Why bad news dominates the headlines - BBC Future <p class="infolinks">[<a href="javascript:toggleInfo('shafford_website_2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.bbc.com/future/article/20140728-why-is-all-the-news-bad">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_shafford_website_2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{shafford_website_2014,
+  author = {Shafford, Tom},
+  title = {Psychology: Why bad news dominates the headlines - BBC Future},
+  year = {2014},
+  url = {https://www.bbc.com/future/article/20140728-why-is-all-the-news-bad}
+}
+</pre></td>
+</tr>
+<tr id="trussler_2014" class="entry">
+	<td>Trussler, M. and Soroka, S.</td>
+	<td>Consumer demand for cynical and negative news frames <p class="infolinks">[<a href="javascript:toggleInfo('trussler_2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('trussler_2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>The International Journal of Press/Politics<br/>Vol. 19(3), pp. 360-379&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1177/1940161214524832">DOI</a> <a href="http://journals.sagepub.com/doi/10.1177/1940161214524832">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_trussler_2014" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Commentators regularly lament the proliferation of both negative and/or strategic (textquotedbllefthorse race) coverage in political news content. The most frequent account for this trend focuses on news norms and/or the priorities of news journalists. Here, we build on recent work arguing for the importance of demand-side, rather than supply-side, explanations of news content. In short, news may be negative and/or strategy-focused because that is the kind of news that people are interested in. We use a lab study to capture participants&rsquo; news-selection biases, alongside a survey capturing their stated news preferences. Politically interested participants are more likely to select negative stories. Interest is associated with a greater preference for strategic frames as well. And results suggest that behavioral results do not conform to attitudinal ones. That is, regardless of what participants say, they exhibit a preference for negative news content.</td>
+</tr>
+<tr id="bib_trussler_2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{trussler_2014,
+  author = {Trussler, Marc and Soroka, Stuart},
+  title = {Consumer demand for cynical and negative news frames},
+  journal = {The International Journal of Press/Politics},
+  year = {2014},
+  volume = {19},
+  number = {3},
+  pages = {360-379},
+  url = {http://journals.sagepub.com/doi/10.1177/1940161214524832},
+  doi = {https://doi.org/10.1177/1940161214524832}
+}
+</pre></td>
+</tr>
+<tr id="lebon_2016" class="entry">
+	<td>Le Bon, G.</td>
+	<td>The Crowd: A Study of the Popular Mind <p class="infolinks">[<a href="javascript:toggleInfo('lebon_2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>, pp. 138&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_lebon_2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{lebon_2016,
+  author = {Le Bon, Gustave},
+  title = {The Crowd: A Study of the Popular Mind},
+  publisher = {Loki's Publishing},
+  year = {2016},
+  pages = {138}
+}
+</pre></td>
+</tr>
+<tr id="rapf_website_nd" class="entry">
+	<td>Rapf, J.E.</td>
+	<td>Network <p class="infolinks">[<a href="javascript:toggleInfo('rapf_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.loc.gov/static/programs/national-film-preservation-board/documents/network.pdf">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_rapf_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{rapf_website_nd,
+  author = {Rapf, Joanna E.},
+  title = {Network},
+  url = {https://www.loc.gov/static/programs/national-film-preservation-board/documents/network.pdf}
+}
+</pre></td>
+</tr>
+<tr id="hutcheon_1999" class="entry">
+	<td>Hutcheon, L. and Hutcheon, M.</td>
+	<td>Death Drive: Eros and Thanatos in Wagner's "Tristan und Isolde" <p class="infolinks">[<a href="javascript:toggleInfo('hutcheon_1999','bibtex')">BibTeX</a>]</p></td>
+	<td>1999</td>
+	<td>Cambridge Opera Journal<br/>Vol. 11(3), pp. 267-293&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://www.jstor.org/stable/823612">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_hutcheon_1999" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{hutcheon_1999,
+  author = {Hutcheon, Linda and Hutcheon, Michael},
+  title = {Death Drive: Eros and Thanatos in Wagner's "Tristan und Isolde"},
+  journal = {Cambridge Opera Journal},
+  year = {1999},
+  volume = {11},
+  number = {3},
+  pages = {267-293},
+  url = {https://www.jstor.org/stable/823612}
+}
+</pre></td>
+</tr>
+<tr id="douglas_website_nd" class="entry">
+	<td>Douglas, S.</td>
+	<td>Double Take textbar Frieze <p class="infolinks">[<a href="javascript:toggleInfo('douglas_website_nd','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="https://www.frieze.com/article/double-take">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_douglas_website_nd" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{douglas_website_nd,
+  author = {Douglas, Stan},
+  title = {Double Take textbar Frieze},
+  url = {https://www.frieze.com/article/double-take}
+}
+</pre></td>
+</tr>
+<tr id="igloliorte_2016" class="entry">
+	<td>Igloliorte, H., Taunton, C. and Nagam, J.</td>
+	<td>Transmissions: the future possibilities of indigenous digital and new media art <p class="infolinks">[<a href="javascript:toggleInfo('igloliorte_2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>Public<br/>Vol. 27(54), pp. 5-13&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1386/public.27.54.5_7">DOI</a> <a href="http://www.ingentaconnect.com/content/10.1386/public.27.54.5\_7">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_igloliorte_2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{igloliorte_2016,
+  author = {Igloliorte, Heather and Taunton, Carla and Nagam, Julia},
+  title = {Transmissions: the future possibilities of indigenous digital and new media art},
+  journal = {Public},
+  year = {2016},
+  volume = {27},
+  number = {54},
+  pages = {5-13},
+  url = {http://www.ingentaconnect.com/content/10.1386/public.27.54.5_7},
+  doi = {https://doi.org/10.1386/public.27.54.5_7}
+}
+</pre></td>
+</tr>
+<tr id="pullen_2016" class="entry">
+	<td>Pullen, T.M.</td>
+	<td>Skawennati's-Timetraveller&trade; : Deconstructing the colonial matrix in virtual reality <p class="infolinks">[<a href="javascript:toggleInfo('pullen_2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('pullen_2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>AlterNative: An International Journal of Indigenous Peoples<br/>Vol. 12(3), pp. 236-249&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.20507/AlterNative.2016.12.3.3">DOI</a> <a href="http://journals.sagepub.com/doi/10.20507/{AlterNative}.2016.12.3.3">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_pullen_2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This article examines the decolonizing imperatives of the nine- episode machinima film series  TimeTraveller &trade; (2008–2013) by the Mohawk artist, writer and curator Skawennati.  TimeTraveller &trade; assesses the (re)presentation of Indigenous pasts and futures. Using avatar characters, Skawennati  delinks  (Mignolo, 2011) from colonial, Western and imperialistic narratives and the hegemonic structures of a Eurocentric worldview. Avatar bodies act as a catalyst in order to break down the contemporary, political episteme of classification and create spaces for fluid  identities-in-politics  (Mignolo, 2011)textemdashvirtual bodies that reflect the layering of subjective personal experiences which may be multiple and changing. In asserting her Indigenous presence in cyberspace, Skawennatitextquoterights work lies in between new media art production and decolonial gesture, provoking a rereading of bodies and identities in order to reimagine and reassert denied and silenced Indigenous voices in virtual reality.</td>
+</tr>
+<tr id="bib_pullen_2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{pullen_2016,
+  author = {Pullen, Treva Michelle},
+  title = {Skawennati's-Timetraveller&trade; : Deconstructing the colonial matrix in virtual reality},
+  journal = {AlterNative: An International Journal of Indigenous Peoples},
+  year = {2016},
+  volume = {12},
+  number = {3},
+  pages = {236-249},
+  url = {http://journals.sagepub.com/doi/10.20507/AlterNative.2016.12.3.3},
+  doi = {https://doi.org/10.20507/AlterNative.2016.12.3.3}
+}
+</pre></td>
+</tr>
+<tr id="jordanhaladyn_2014" class="entry">
+	<td>Jordan-Haladyn, M.</td>
+	<td>Dialogic Materialism <p class="infolinks">[<a href="javascript:toggleInfo('jordanhaladyn_2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td><a href="https://doi.org/10.3726/978-1-4539-1227-0">DOI</a> <a href="https://www.peterlang.com/view/title/22497">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_jordanhaladyn_2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{jordanhaladyn_2014,
+  author = {Jordan-Haladyn, Miriam},
+  title = {Dialogic Materialism},
+  publisher = {Peter Lang US},
+  year = {2014},
+  url = {https://www.peterlang.com/view/title/22497},
+  doi = {https://doi.org/10.3726/978-1-4539-1227-0}
+}
+</pre></td>
+</tr>
+<tr id="lupton_2004" class="entry">
+	<td>Lupton, C.</td>
+	<td>Chris Marker: Memories of the Future <p class="infolinks">[<a href="javascript:toggleInfo('lupton_2004','bibtex')">BibTeX</a>]</p></td>
+	<td>2004</td>
+	<td>, pp. 256&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_lupton_2004" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{lupton_2004,
+  author = {Lupton, Catherine},
+  title = {Chris Marker: Memories of the Future},
+  publisher = {Reaktion Books},
+  year = {2004},
+  pages = {256}
+}
+</pre></td>
+</tr>
+<tr id="harbord_2009" class="entry">
+	<td>Harbord, J.</td>
+	<td>Chris Marker: La Jetée <p class="infolinks">[<a href="javascript:toggleInfo('harbord_2009','bibtex')">BibTeX</a>]</p></td>
+	<td>2009</td>
+	<td>, pp. 112&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_harbord_2009" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{harbord_2009,
+  author = {Harbord, Janet},
+  title = {Chris Marker: La Jetée},
+  publisher = {Afterall Books},
+  year = {2009},
+  pages = {112}
+}
+</pre></td>
+</tr>
+<tr id="alter_2006" class="entry">
+	<td>Alter, N.M.</td>
+	<td>Chris Marker <p class="infolinks">[<a href="javascript:toggleInfo('alter_2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>, pp. 232&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_alter_2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{alter_2006,
+  author = {Alter, Nora M.},
+  title = {Chris Marker},
+  publisher = {University Of Illinois Press},
+  year = {2006},
+  pages = {232}
+}
+</pre></td>
+</tr>
+<tr id="alter_2007" class="entry">
+	<td>Alter, N.M.</td>
+	<td>Translating the Essay into Film and Installation <p class="infolinks">[<a href="javascript:toggleInfo('alter_2007','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('alter_2007','bibtex')">BibTeX</a>]</p></td>
+	<td>2007</td>
+	<td>Journal of Visual Culture<br/>Vol. 6(1), pp. 44-57&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1177/1470412907075068">DOI</a> <a href="http://journals.sagepub.com/doi/10.1177/1470412907075068">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_alter_2007" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This article investigates whether or not it is possible to translate the philosophical essay into a two- and later three-dimensional audiovisual form known as the `essay film'. This genre is increasingly gaining recognition as a distinct branch of international cinema. This text traces the essay film's origins back to early silent cinema and the abstract, experimental films of artists and then follows its development and the forking of paths into non-fiction `art cinema' and non-fiction film, concluding with recent experiments that blur the distinction between art and film and which seek to transform the essay into a sculptural installation.</td>
+</tr>
+<tr id="bib_alter_2007" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{alter_2007,
+  author = {Alter, Nora M.},
+  title = {Translating the Essay into Film and Installation},
+  journal = {Journal of Visual Culture},
+  year = {2007},
+  volume = {6},
+  number = {1},
+  pages = {44-57},
+  url = {http://journals.sagepub.com/doi/10.1177/1470412907075068},
+  doi = {https://doi.org/10.1177/1470412907075068}
+}
+</pre></td>
+</tr>
+<tr id="montero_2006" class="entry">
+	<td>Montero, D.</td>
+	<td>Film also ages: time and images in Chris Marker's Sans soleil <p class="infolinks">[<a href="javascript:toggleInfo('montero_2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>Studies in French Cinema<br/>Vol. 6(2), pp. 107-115&nbsp;</td>
+	<td>article</td>
+	<td><a href="https://doi.org/10.1386/sfci.6.2.107/1">DOI</a> <a href="http://www.ingentaconnect.com/content/intellect/sfc/2006/00000006/00000002/art00004">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_montero_2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{montero_2006,
+  author = {Montero, David},
+  title = {Film also ages: time and images in Chris Marker's Sans soleil},
+  journal = {Studies in French Cinema},
+  year = {2006},
+  volume = {6},
+  number = {2},
+  pages = {107-115},
+  url = {http://www.ingentaconnect.com/content/intellect/sfc/2006/00000006/00000002/art00004},
+  doi = {https://doi.org/10.1386/sfci.6.2.107/1}
+}
+</pre></td>
+</tr>
+</tbody>
+</table>
+<footer>
+ <small>Created by <a href="https://www.jabref.org">JabRef</a> on 2025/11/20.</small>
+</footer>
+<!-- file generated by JabRef -->
+</body>
+</html>
